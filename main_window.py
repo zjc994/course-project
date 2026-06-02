@@ -5,8 +5,8 @@ qt_plugin_path = os.path.join(
     "AppData", "Roaming", "Python", "Python313",
     "site-packages", "PyQt5", "Qt5", "plugins"
 )
-os.environ["QT_QPA_PLATFORM_PLUGIN_PATH"] = os.path.join(qt_plugin_path, "platforms")
-os.environ["QT_PLUGIN_PATH"] = qt_plugin_path
+#os.environ["QT_QPA_PLATFORM_PLUGIN_PATH"] = os.path.join(qt_plugin_path, "platforms")
+#os.environ["QT_PLUGIN_PATH"] = qt_plugin_path
 
 from PyQt5.QtWidgets import QApplication, QMainWindow, QWidget, QPushButton, QLabel, QMessageBox, QShortcut
 from PyQt5.QtGui import QPixmap, QIcon, QKeySequence
@@ -51,12 +51,12 @@ class StartGameBackground(QMainWindow):
         self.exit_btn.setStyleSheet("border:none; background-color:transparent;")
         self.exit_btn.clicked.connect(self.on_exit_clicked)
 
+        self.fullscreen_mode = False
         self.fullscreen_shortcut = QShortcut(QKeySequence(Qt.Key_F11), self)
         self.fullscreen_shortcut.activated.connect(self.toggle_fullscreen)
         self.escape_shortcut = QShortcut(QKeySequence(Qt.Key_Escape), self)
         self.escape_shortcut.activated.connect(self.exit_fullscreen)
 
-        # ====================== ✅ 核心修复：只创建一次选英雄窗口 ======================
         from select_hero import SelectHeroWindow
         self.select_window = SelectHeroWindow(self, self.width(), self.height())
 
@@ -106,20 +106,29 @@ class StartGameBackground(QMainWindow):
     def toggle_fullscreen(self):
         if self.isFullScreen():
             self.showNormal()
+            self.fullscreen_mode = False
         else:
             self.showFullScreen()
+            self.fullscreen_mode = True
 
     def exit_fullscreen(self):
         if self.isFullScreen():
+            self.showNormal()
+            self.fullscreen_mode = False
+
+    def apply_fullscreen_state(self, fullscreen: bool):
+        self.fullscreen_mode = fullscreen
+        if fullscreen:
+            self.showFullScreen()
+        else:
             self.showNormal()
 
     def button_hover_anim(self, button, scale):
         pass
 
-    # ====================== ✅ 点击开始：无闪烁、无跳转 ======================
     def on_start_clicked(self):
+        self.select_window.apply_fullscreen_state(self.fullscreen_mode)
         self.hide()
-        self.select_window.show()
 
     def on_help_clicked(self):
         pass
