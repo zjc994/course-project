@@ -195,10 +195,12 @@ class DraggableLabel(QLabel):
                 super().setPixmap(scaled)
 
                 pos = stage.mapTo(main_win.central_widget, QPoint(0, 0))
+                right_offset, up_offset = main_win.get_stage_hero_offset(stage, new_type)
                 self.move(
-                    pos.x() + (stage.width() - self.width()) // 2,
-                    pos.y() + (stage.height() - self.height()) // 2
+                    pos.x() + (stage.width() - self.width()) // 2 + right_offset,
+                    pos.y() + stage.height() - self.height() + up_offset
                 )
+                self.raise_()
 
                 self.hero_type = new_type
                 self.shallow_group_id = -1
@@ -464,6 +466,11 @@ class SelectHeroWindow(QMainWindow):
         max_h = int(stage.height() * self.hero_scale_factor)
         return pixmap.scaled(max_w, max_h, Qt.KeepAspectRatio).size()
 
+    def get_stage_hero_offset(self, stage, hero_type):
+        if hero_type != "adventurer":
+            return int(stage.width() * 0.22), -int(stage.height() * 0.28)
+        return 0, -int(stage.height() * 0.5)
+
     def create_hero_on_stage(self, stage, pixmap, hero_type, stage_index):
         hero = DraggableLabel(self.central_widget)
         hero.hero_type = hero_type
@@ -473,9 +480,11 @@ class SelectHeroWindow(QMainWindow):
         hero.setPixmap(pixmap)
 
         pos = stage.mapTo(self.central_widget, QPoint(0, 0))
+        right_offset, up_offset = self.get_stage_hero_offset(stage, hero_type)
+
         hero.move(
-            pos.x() + (stage.width() - hero.width()) // 2,
-            pos.y() + (stage.height() - hero.height()) // 2
+            pos.x() + (stage.width() - hero.width()) // 2 + right_offset,
+            pos.y() + stage.height() - hero.height() + up_offset
         )
         hero.show()
         hero.raise_()
@@ -512,9 +521,10 @@ class SelectHeroWindow(QMainWindow):
                 scaled = stage.hero_label.base_pixmap.scaled(max_w, max_h, Qt.KeepAspectRatio)
                 stage.hero_label.setFixedSize(scaled.size())
                 pos = stage.mapTo(self.central_widget, QPoint(0,0))
+                right_offset, up_offset = self.get_stage_hero_offset(stage, stage.hero_label.hero_type)
                 stage.hero_label.move(
-                    pos.x() + (stage.width() - stage.hero_label.width())//2,
-                    pos.y() + (stage.height() - stage.hero_label.height())//2
+                    pos.x() + (stage.width() - stage.hero_label.width())//2 + right_offset,
+                    pos.y() + (stage.height() - stage.hero_label.height()) + up_offset
                 )
                 stage.hero_label.raise_()
 
