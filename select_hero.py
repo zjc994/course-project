@@ -7,11 +7,65 @@ from PyQt5.QtWidgets import (
 from PyQt5.QtGui import QPixmap, QIcon, QDrag, QMouseEvent, QKeySequence
 from PyQt5.QtCore import Qt, QMimeData, QByteArray, QPoint, QSize
 
+class MushroomHero:
+    name = "蘑菇基类"
+    attack = 10
+    hp = 100
+    description = "这是基类，拖动武器图标到基类身上可以派生为不同英雄。"
+    image_path = "images/hero/adventurer.png"
+    parent_class = "无"
+
+    def format_info(self):
+        return (
+            f"名称: {self.name}\n"
+            f"继承: {self.parent_class}\n"
+            f"基础攻击力: {self.attack}\n"
+            f"基础血量: {self.hp}\n"
+            f"特性: {self.description}\n"
+            f"图片地址: {self.image_path}"
+        )
+
+class Warrior(MushroomHero):
+    name = "武士"
+    attack = 35
+    hp = 180
+    description = "对单体造成大伤害，给单个队友加攻击力。"
+    image_path = "images/hero/warrior.png"
+    parent_class = "蘑菇基类"
+
+class Archer(MushroomHero):
+    name = "弓箭手"
+    attack = 28
+    hp = 140
+    description = "造成群体伤害，并给队友提供反伤效果。"
+    image_path = "images/hero/archer.png"
+    parent_class = "蘑菇基类"
+
+class Mage(MushroomHero):
+    name = "法师"
+    attack = 22
+    hp = 120
+    description = "可以治愈，单体攻击并降低敌人攻击力。"
+    image_path = "images/hero/mage.png"
+    parent_class = "蘑菇基类"
+
 EQUIP_TO_HERO = {
     "sword": "warrior.png",
     "bow": "archer.png",
     "wand": "mage.png"
 }
+
+HERO_TYPE_TO_CLASS = {
+    "adventurer": MushroomHero,
+    "warrior": Warrior,
+    "archer": Archer,
+    "mage": Mage,
+}
+
+
+def get_hero_data_by_type(hero_type):
+    cls = HERO_TYPE_TO_CLASS.get(hero_type, MushroomHero)
+    return cls()
 
 class CopyDialog(QDialog):
     def __init__(self, hero_name, parent=None):
@@ -45,7 +99,9 @@ class DraggableLabel(QLabel):
         self.hero_type = None
         self.stage_index = -1
         self.base_pixmap = None
+        self.hero_data = None
         self.shallow_group_id = -1
+        self._click_candidate = False
 
     def setPixmap(self, pixmap):
         self.base_pixmap = pixmap
@@ -63,6 +119,7 @@ class DraggableLabel(QLabel):
     def mousePressEvent(self, event: QMouseEvent):
         if event.button() == Qt.LeftButton:
             self.drag_start_pos = event.pos()
+            self._click_candidate = True
         super().mousePressEvent(event)
 
     def mouseMoveEvent(self, event: QMouseEvent):
@@ -71,6 +128,7 @@ class DraggableLabel(QLabel):
         distance = (event.pos() - self.drag_start_pos).manhattanLength()
         if distance < QApplication.startDragDistance():
             return
+        self._click_candidate = False
 
         drag = QDrag(self)
         mime_data = QMimeData()
@@ -87,12 +145,31 @@ class DraggableLabel(QLabel):
         drag.setHotSpot(event.pos())
         drag.exec_(Qt.MoveAction)
 
+    def mouseReleaseEvent(self, event: QMouseEvent):
+        if event.button() == Qt.LeftButton and self._click_candidate:
+            main_win = self.window()
+            if main_win and hasattr(main_win, "show_hero_info"):
+                main_win.show_hero_info(self)
+        super().mouseReleaseEvent(event)
+
     def dragEnterEvent(self, event):
         if event.mimeData().hasFormat("application/x-equip-data"):
-            event.acceptProposedAction()
+            if self.stage_index >= 0:
+                event.acceptProposedAction()
+            else:
+                event.ignore()
 
     def dropEvent(self, event):
         if event.mimeData().hasFormat("application/x-equip-data"):
+            if self.stage_index < 0:
+                QMessageBox.warning(
+                    self.window(),
+                    "装备失败",
+                    "请先将蘑菇拖到舞台上，再拖动武器进行派生。"
+                )
+                event.ignore()
+                return
+
             equip_data = eval(event.mimeData().data("application/x-equip-data").data().decode())
             equip_type = equip_data["equip_type"]
             hero_img = EQUIP_TO_HERO.get(equip_type)
@@ -102,33 +179,32 @@ class DraggableLabel(QLabel):
                 if not main_win or not hasattr(main_win, "stages"):
                     return
                 stage = main_win.stages[self.stage_index]
-                
+
+                new_type = {
+                    "sword": "warrior",
+                    "bow": "archer",
+                    "wand": "mage"
+                }[equip_type]
                 new_pix = QPixmap(f"images/hero/{hero_img}")
                 max_w = int(stage.width() * main_win.hero_scale_factor)
                 max_h = int(stage.height() * main_win.hero_scale_factor)
                 scaled = new_pix.scaled(max_w, max_h, Qt.KeepAspectRatio)
                 self.setFixedSize(scaled.size())
                 self.base_pixmap = new_pix
+                self.hero_data = get_hero_data_by_type(new_type)
                 super().setPixmap(scaled)
-                
+
                 pos = stage.mapTo(main_win.central_widget, QPoint(0, 0))
                 self.move(
                     pos.x() + (stage.width() - self.width()) // 2,
                     pos.y() + (stage.height() - self.height()) // 2
                 )
-                
-                self.hero_type = {
-                    "sword": "warrior",
-                    "bow": "archer",
-                    "wand": "mage"
-                }[equip_type]
-                self.shallow_group_id = -1
-                
-            event.acceptProposedAction()
 
-# ==============================
-# 可拖拽装备按钮
-# ==============================
+                self.hero_type = new_type
+                self.shallow_group_id = -1
+                if main_win and hasattr(main_win, "show_hero_info"):
+                    main_win.show_hero_info(self)
+                event.acceptProposedAction()
 class DraggableEquipButton(QPushButton):
     def __init__(self, equip_type, icon_path, parent=None):
         super().__init__(parent)
@@ -145,6 +221,12 @@ class DraggableEquipButton(QPushButton):
     def mousePressEvent(self, event: QMouseEvent):
         if event.button() == Qt.LeftButton:
             self.drag_start_pos = event.pos()
+            main_win = self.window()
+            if main_win and hasattr(main_win, "show_context_info"):
+                main_win.show_context_info(
+                    f"武器：拖动此图标到蘑菇基类身上可派生为不同英雄。\n"
+                    "剑 -> 武士，弓 -> 弓箭手，魔杖 -> 法师。"
+                )
         super().mousePressEvent(event)
 
     def mouseMoveEvent(self, event: QMouseEvent):
@@ -208,6 +290,16 @@ class BinLabel(QLabel):
         super().__init__(parent)
         self.setAcceptDrops(True)
 
+    def mousePressEvent(self, event: QMouseEvent):
+        if event.button() == Qt.LeftButton:
+            main_win = self.window()
+            if main_win and hasattr(main_win, "show_context_info"):
+                main_win.show_context_info(
+                    "垃圾桶：拖动已有角色到这里可以删除该角色。\n"
+                    "如果该角色是浅拷贝组的一员，整个组会一起被删除。"
+                )
+        super().mousePressEvent(event)
+
     def dragEnterEvent(self, event):
         if event.mimeData().hasFormat("application/x-hero-data"):
             event.acceptProposedAction()
@@ -230,6 +322,16 @@ class MirrorLabel(QLabel):
         super().__init__(parent)
         self.setAcceptDrops(True)
 
+    def mousePressEvent(self, event: QMouseEvent):
+        if event.button() == Qt.LeftButton:
+            main_win = self.window()
+            if main_win and hasattr(main_win, "show_context_info"):
+                main_win.show_context_info(
+                    "镜子：拖动已派生的角色（即已经装备武器的蘑菇）到镜子上，可选择深拷贝或浅拷贝。\n"
+                    "浅拷贝会共享资源，删除任一会崩溃整组。"
+                )
+        super().mousePressEvent(event)
+
     def dragEnterEvent(self, event):
         if event.mimeData().hasFormat("application/x-hero-data"):
             data = eval(event.mimeData().data("application/x-hero-data").data().decode())
@@ -243,9 +345,23 @@ class MirrorLabel(QLabel):
             data = eval(event.mimeData().data("application/x-hero-data").data().decode())
             if data["hero_type"] != "adventurer":
                 main_win = self.window()
+                hero = None
                 if main_win:
-                    stage = main_win.stages[data["stage_index"]]
-                    main_win.try_copy_hero(stage.hero_label)
+                    stage_index = data.get("stage_index", -1)
+                    if 0 <= stage_index < len(main_win.stages):
+                        hero = main_win.stages[stage_index].hero_label
+                    if hero is None:
+                        source = event.source()
+                        if isinstance(source, DraggableLabel) and source.hero_type != "adventurer":
+                            hero = source
+                    if hero is not None:
+                        main_win.try_copy_hero(hero)
+                    else:
+                        QMessageBox.warning(
+                            self,
+                            "复制失败",
+                            "未找到要复制的已派生角色，请重新拖动已派生角色到镜子上。"
+                        )
                 event.acceptProposedAction()
                 return
         event.ignore()
@@ -282,6 +398,7 @@ class SelectHeroWindow(QMainWindow):
         # 初始蘑菇
         self.base_mushroom = DraggableLabel(self.central_widget)
         self.base_mushroom.hero_type = "adventurer"
+        self.base_mushroom.hero_data = get_hero_data_by_type("adventurer")
         self.mushroom_pm = QPixmap("images/hero/adventurer.png")
         self.base_mushroom.setAttribute(Qt.WA_TranslucentBackground)
 
@@ -325,6 +442,18 @@ class SelectHeroWindow(QMainWindow):
         self.start_btn.setStyleSheet("border:none; background:transparent;")
         self.start_btn.clicked.connect(self.on_start_battle)
 
+        self.info_label = QLabel(self.central_widget)
+        self.info_label.setWordWrap(True)
+        self.info_label.setAlignment(Qt.AlignTop | Qt.AlignLeft)
+        self.info_label.setStyleSheet(
+            "background: rgba(0, 0, 0, 0.6); color: white; border-radius: 10px; padding: 10px;"
+        )
+        self.info_label.setText(
+            "点击角色查看详细信息。\n\n"
+            "蘑菇基类：基础攻击力/基础血量，可拖动武器图标进行派生。"
+        )
+        self.info_label.setFixedSize(300, 200)
+
         self.fullscreen_shortcut = QShortcut(QKeySequence(Qt.Key_F11), self)
         self.fullscreen_shortcut.activated.connect(self.toggle_fullscreen)
         self.escape_shortcut = QShortcut(QKeySequence(Qt.Key_Escape), self)
@@ -338,6 +467,7 @@ class SelectHeroWindow(QMainWindow):
     def create_hero_on_stage(self, stage, pixmap, hero_type, stage_index):
         hero = DraggableLabel(self.central_widget)
         hero.hero_type = hero_type
+        hero.hero_data = get_hero_data_by_type(hero_type)
         hero.stage_index = stage_index
         hero.setFixedSize(self.get_stage_hero_size(stage, pixmap))
         hero.setPixmap(pixmap)
@@ -416,11 +546,25 @@ class SelectHeroWindow(QMainWindow):
         self.start_btn.setIconSize(QSize(ui_size, ui_size))
         self.start_btn.move(int(w*0.88), int(h*0.82))
 
+        margin = int(w * 0.02)
+        self.info_label.move(w - self.info_label.width() - margin, margin)
+
     def go_back(self):
         full = self.isFullScreen()
         self.hide()
         if self.main_window:
             self.main_window.apply_fullscreen_state(full)
+
+    def show_hero_info(self, hero):
+        if hero and hero.hero_data:
+            self.info_label.setText(hero.hero_data.format_info())
+        else:
+            self.info_label.setText(
+                "当前角色无详细信息。点击蘑菇基类或已派生英雄查看。"
+            )
+
+    def show_context_info(self, text):
+        self.info_label.setText(text)
 
     def toggle_fullscreen(self):
         if self.isFullScreen():
@@ -449,6 +593,10 @@ class SelectHeroWindow(QMainWindow):
             self.apply_fullscreen_state(False)
 
     def try_copy_hero(self, hero):
+        if hero is None:
+            QMessageBox.warning(self, "复制失败", "未找到要复制的角色。")
+            return
+
         empty = None
         for s in self.stages:
             if s.hero_label is None:
