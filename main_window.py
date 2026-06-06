@@ -13,9 +13,10 @@ from PyQt5.QtGui import QPixmap, QIcon, QKeySequence
 from PyQt5.QtCore import Qt, QPropertyAnimation, QRect
 
 class StartGameBackground(QMainWindow):
-    def __init__(self):
+    def __init__(self, main_window=None, width=1280, height=720):
         super().__init__()
         self.setWindowTitle("英雄试炼")
+        self.resize(width, height)
         
         self.setMinimumSize(1280, 720)
         self.setWindowFlags(Qt.Window | Qt.WindowMinimizeButtonHint | Qt.WindowMaximizeButtonHint | Qt.WindowCloseButtonHint)
@@ -60,7 +61,6 @@ class StartGameBackground(QMainWindow):
         from select_hero import SelectHeroWindow
         self.select_window = SelectHeroWindow(self, self.width(), self.height())
 
-        self.resize(1280, 720)
 
     def resizeEvent(self, event):
         super().resizeEvent(event)
@@ -127,7 +127,11 @@ class StartGameBackground(QMainWindow):
         pass
 
     def on_start_clicked(self):
+        geo=self.geometry()
+        self.select_window.setGeometry(geo)
+        self.select_window.resize(self.width(),self.height())
         self.select_window.apply_fullscreen_state(self.fullscreen_mode)
+        self.select_window.show()
         self.hide()
 
     def on_help_clicked(self):
