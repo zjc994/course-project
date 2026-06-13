@@ -3,7 +3,7 @@ import sys
 import os
 import math
 from PyQt5.QtWidgets import QApplication, QMainWindow, QWidget, QPushButton, QLabel, QMessageBox, QShortcut
-from PyQt5.QtGui import QPixmap, QIcon, QKeySequence, QMouseEvent, QDrag, QTransform
+from PyQt5.QtGui import QPixmap, QIcon, QKeySequence, QMouseEvent, QDrag, QTransform, QFont
 from PyQt5.QtCore import Qt, QPropertyAnimation, QRect, QPoint, QSize, QEasingCurve, QTimer, QMimeData, QByteArray
 
 # ==================== 全局数值 ====================
@@ -16,12 +16,24 @@ enemy_list = []
 hero_turn = True
 moveable_hero = []
 
+def find_image_path(*parts):
+    path = os.path.join("images", *parts)
+    if os.path.exists(path):
+        return path
+    if parts and parts[0] == "enemy":
+        legacy_path = os.path.join("images", "enermy", *parts[1:])
+        if os.path.exists(legacy_path):
+            return legacy_path
+    return path
+
 # ==================== 箭矢类 ====================
 class arrow(QLabel):
     def __init__(self, parent=None):
         super().__init__(parent)
         self.scale_size = 0.1
-        self.original_pixmap = QPixmap(os.path.join("images", "objects", "arrow.png"))
+        self.original_pixmap = QPixmap(find_image_path("objects", "arrow.png"))
+        if self.original_pixmap.isNull():
+            self.original_pixmap = QPixmap(find_image_path("objects", "target.png"))
         self.rotation = 0.0
         self.setAttribute(Qt.WA_TranslucentBackground)
         self.setAlignment(Qt.AlignCenter)
@@ -81,8 +93,8 @@ class arrow(QLabel):
             w = main_win.width()
         else:
             w = 1280
-        src_w = self.original_pixmap.width()
-        src_h = self.original_pixmap.height()
+        src_w = max(1, self.original_pixmap.width())
+        src_h = max(1, self.original_pixmap.height())
         real_w = int(w * self.scale_size)
         real_h = int(real_w * (src_h / src_w))
         top_left_x = int(start_x) + self.width() * 2
@@ -92,7 +104,10 @@ class arrow(QLabel):
         self.show()
         rad = math.radians(my_angle)
         dis = int(w * 0.15)
-        end_cx = start_x + dis / math.tan(rad)
+        tan_value = math.tan(rad)
+        if abs(tan_value) < 1e-6:
+            tan_value = 1e-6
+        end_cx = start_x + dis / tan_value
         end_cy = start_y - dis
 
         parent_obj = self.parent() if self.parent() is not None else self
@@ -108,7 +123,7 @@ class arrow(QLabel):
 class Fireball(QLabel):
     def __init__(self, parent=None):
         super().__init__(parent)
-        self.original_pixmap = QPixmap(os.path.join("images", "enemy", "lavaball.png"))
+        self.original_pixmap = QPixmap(find_image_path("enemy", "lavaball.png"))
         self.setAttribute(Qt.WA_TranslucentBackground)
         self.setAlignment(Qt.AlignCenter)
         self.setFixedSize(10, 10)
@@ -173,6 +188,38 @@ class LightningBall(QLabel):
         anim.start()
 
 # ==================== 英雄类 ====================
+class SupportOrb(QLabel):
+    def __init__(self, color: str, parent=None):
+        super().__init__(parent)
+        self.color = color
+        self.setAttribute(Qt.WA_TransparentForMouseEvents)
+        self.setAlignment(Qt.AlignCenter)
+        self.hide()
+
+    def fly_to(self, start_x, start_y, final_x, final_y, finished_callback=None):
+        parent = self.parent() if self.parent() is not None else self
+        size = max(18, int(parent.width() * 0.018))
+        self.setFixedSize(size, size)
+        self.setStyleSheet(
+            f"background-color: {self.color}; "
+            "border: 2px solid rgba(255, 255, 255, 220); "
+            f"border-radius: {size // 2}px;"
+        )
+        self.move(int(start_x - size // 2), int(start_y - size // 2))
+        self.show()
+        self.raise_()
+
+        anim = QPropertyAnimation(self, b"pos", self)
+        anim.setDuration(360)
+        anim.setStartValue(QPoint(int(start_x - size // 2), int(start_y - size // 2)))
+        anim.setEndValue(QPoint(int(final_x - size // 2), int(final_y - size // 2)))
+        anim.setEasingCurve(QEasingCurve.OutCubic)
+        if finished_callback is not None:
+            anim.finished.connect(finished_callback)
+        anim.finished.connect(self.deleteLater)
+        self._anim = anim
+        anim.start()
+
 class fighting_hero(QLabel):
     def __init__(self, hero_type: str, shallow_group_id: int, id: int, parent=None):
         super().__init__(parent)
@@ -208,6 +255,7 @@ class fighting_hero(QLabel):
         self._hp_fg.hide()
         self._hp_bg.setAttribute(Qt.WA_TransparentForMouseEvents)
         self._hp_fg.setAttribute(Qt.WA_TransparentForMouseEvents)
+        self._status_badges = {}
 
     def shake(self, duration: int = 200, amplitude: int = 5):
         original_pos = self.pos()
@@ -233,6 +281,77 @@ class fighting_hero(QLabel):
         self._hp_fg.show()
         self._hp_fg.lower()
         self._hp_bg.lower()
+        self.update_status_badges()
+
+    def update_status_badges(self):
+        if not hasattr(self, "_status_badges"):
+            return
+        badge_h = max(18, int(self.height() * 0.13))
+        badge_w = max(54, int(self.width() * 0.48))
+        margin = max(2, int(self.width() * 0.03))
+        for index, badge in enumerate(self._status_badges.values()):
+            badge.setFixedSize(badge_w, badge_h)
+            font = badge.font()
+            font.setPixelSize(max(9, int(badge_h * 0.55)))
+            font.setBold(True)
+            badge.setFont(font)
+            badge.move(self.width() - badge_w - margin, margin + index * (badge_h + margin))
+            badge.raise_()
+
+    def show_status_badge(self, key: str, text: str, color: str):
+        badge = self._status_badges.get(key)
+        if badge is None:
+            badge = QLabel(self)
+            badge.setAlignment(Qt.AlignCenter)
+            badge.setAttribute(Qt.WA_TransparentForMouseEvents)
+            self._status_badges[key] = badge
+        badge.setText(text)
+        badge.setStyleSheet(
+            f"background-color: {color}; color: white; "
+            "border: 1px solid rgba(255, 255, 255, 210); border-radius: 6px;"
+        )
+        badge.show()
+        self.update_status_badges()
+
+    def show_floating_effect(self, text: str, color: str):
+        parent = self.parent() if self.parent() is not None else self
+        label = QLabel(text, parent)
+        label.setAttribute(Qt.WA_TransparentForMouseEvents)
+        label.setAlignment(Qt.AlignCenter)
+        font = QFont()
+        font.setPixelSize(max(16, int(self.height() * 0.16)))
+        font.setBold(True)
+        label.setFont(font)
+        label.setStyleSheet(
+            f"color: white; background-color: {color}; "
+            "border: 1px solid rgba(255, 255, 255, 220); border-radius: 8px; padding: 4px 8px;"
+        )
+        label.adjustSize()
+        start_x = int(self.x() + (self.width() - label.width()) / 2)
+        start_y = int(self.y() - label.height() * 0.3)
+        label.move(start_x, start_y)
+        label.show()
+        label.raise_()
+
+        anim = QPropertyAnimation(label, b"pos", label)
+        anim.setDuration(850)
+        anim.setStartValue(QPoint(start_x, start_y))
+        anim.setEndValue(QPoint(start_x, start_y - max(28, int(self.height() * 0.25))))
+        anim.setEasingCurve(QEasingCurve.OutCubic)
+        anim.finished.connect(label.deleteLater)
+        label._anim = anim
+        anim.start()
+
+    def play_support_effect(self, source_hero, text: str, color: str):
+        if source_hero is None or self.parent() is None:
+            self.show_floating_effect(text, color)
+            return
+        start_x = source_hero.x() + source_hero.width() // 2
+        start_y = source_hero.y() + source_hero.height() // 2
+        final_x = self.x() + self.width() // 2
+        final_y = self.y() + self.height() // 2
+        orb = SupportOrb(color, self.parent())
+        orb.fly_to(start_x, start_y, final_x, final_y, finished_callback=lambda: self.show_floating_effect(text, color))
 
     def set_sprite_size(self, max_w: int, max_h: int):
         if self.bg_original_pixmap and not self.bg_original_pixmap.isNull():
@@ -320,21 +439,28 @@ class fighting_hero(QLabel):
             source_type = data.get("hero_type")
             print(f"[辅助] {source_type} (id={source_id}) 对 {self.hero_type} (id={self.id}) 使用了技能")
             main_win = self.window()
+            source_hero = next((h for h in my_heroes if h.id == source_id), None)
             if source_type == "mage":
                 self.elements = min(add_elements + self.elements, ini_elements[self.hero_type])
                 self.update_hp_bar()
                 self.shake()
+                self.play_support_effect(source_hero, f"+{add_elements} HP", "rgba(36, 166, 92, 220)")
                 for h in my_heroes:
                     if h.shallow_group_id == self.shallow_group_id and h.shallow_group_id != -1 and h.id != self.id and h.alive:
                         h.elements = min(add_elements + h.elements, ini_elements[h.hero_type])
                         h.update_hp_bar()
                         h.shake()
+                        h.play_support_effect(source_hero, f"+{add_elements} HP", "rgba(36, 166, 92, 220)")
             elif source_type == "warrior":
                 self.attack_multiplier = 1.2
                 self.shake()
+                self.show_status_badge("attack", "ATK UP", "rgba(211, 84, 0, 220)")
+                self.play_support_effect(source_hero, "ATK UP", "rgba(211, 84, 0, 220)")
             elif source_type == "archer":
                 self.reflect_damage = reflect_damage
                 self.shake()
+                self.show_status_badge("reflect", "REFLECT", "rgba(37, 99, 235, 220)")
+                self.play_support_effect(source_hero, "REFLECT", "rgba(37, 99, 235, 220)")
             event.setDropAction(Qt.CopyAction)
             event.acceptProposedAction()
 
@@ -349,7 +475,7 @@ class Enemy(QLabel):
         self.slot = slot
         self.hero_type = enemy_type
         self.elements = ini_elements[self.enemy_type]
-        img_path = os.path.join("images", "enemy", f"{self.enemy_type}.png")
+        img_path = find_image_path("enemy", f"{self.enemy_type}.png")
         self.bg_original_pixmap = QPixmap(img_path)
         self.setAttribute(Qt.WA_TranslucentBackground)
         self.setAlignment(Qt.AlignCenter)
