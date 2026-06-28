@@ -450,7 +450,6 @@ class fighting_hero(QLabel):
                         h.elements = min(add_elements + h.elements, ini_elements[h.hero_type])
                         h.update_hp_bar()
                         h.shake()
-                        h.play_support_effect(source_hero, f"+{add_elements} HP", "rgba(36, 166, 92, 220)")
             elif source_type == "warrior":
                 self.attack_multiplier = 1.2
                 self.shake()
@@ -828,7 +827,7 @@ class Enemy(QLabel):
         main_win.update_status()
 
     def _handle_death(self, main_win):
-        print(f"[死亡] {self.enemy_type} ({self.slot}) 被击败")
+        print(f"[死亡] {self.enemy_type} ({self.slot}) 被")
         self.hide_attack_icon()
         self.hide_summon_icon()
         if self.slot in ["top", "bottom"]:
@@ -1141,7 +1140,12 @@ class Fight_Window(QMainWindow):
         self.update_status()
 
     def _end_battle(self):
+        global hero_turn,my_heroes,enemy_list,moveable_hero
         if self.select_hero_window:
+            my_heroes.clear()
+            enemy_list.clear()
+            hero_turn = True
+            moveable_hero.clear()
             self.select_hero_window.reset_battle_state()
             self.select_hero_window.show()
         self.close()
@@ -1214,7 +1218,6 @@ class Fight_Window(QMainWindow):
 
         if not attack_order:
             print("没有存活敌人，胜利！")
-            QMessageBox.information(self, "胜利！", "你击败了所有敌人！")
             self._end_battle()
             return
 
